@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 use anyhow::Context;
+use std::collections::BTreeMap;
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -12,8 +13,7 @@ fn main() -> Result<()> {
     let file_path = &args[1];
 
     let input = File::open(file_path).context("could not find input file")?;
-
-    let mut max = 0;
+    let mut loads = BTreeMap::<u32, u8>::new();
     io::BufReader::new(input)
         .lines()
         .try_fold(0u32, |acc, line| {
@@ -27,12 +27,24 @@ fn main() -> Result<()> {
                 _ => {}
             }
 
-            if acc > max {
-                max = acc
-            }
+            loads.entry(acc).and_modify(|count| *count += 1).or_insert(1);
             Ok(0)
         })?;
 
-    println!("The maximum number of calories carried by a single elf is: {}", max);
+    let mut sum = 0u32;
+    let mut left = 3u8;
+    for (calories, count) in loads.iter().rev() {
+        if count >= &left {
+            sum += left as u32 * calories;
+            break;
+        }
+
+        left -= count;
+        sum += *count as u32 * calories;
+    }
+    println!(
+        "The maximum number of calories carried by the three most laden elves is: {}",
+        sum
+    );
     Ok(())
 }
