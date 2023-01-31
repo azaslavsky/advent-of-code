@@ -1,4 +1,5 @@
 [workspace]
 members = [
+   "common",
    "day-1",
 ]

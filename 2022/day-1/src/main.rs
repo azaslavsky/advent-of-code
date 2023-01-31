@@ -1,20 +1,11 @@
-use anyhow::{bail, Result};
-use std::fs::File;
+use anyhow::{Context, Result};
+use common::open_input_file;
+use std::collections::BTreeMap;
 use std::io::{self, BufRead};
 
-use anyhow::Context;
-use std::collections::BTreeMap;
-
 fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().collect();
-    if args.len() != 2 {
-        bail!("Must specify exactly one argument, a file to load as input");
-    }
-    let file_path = &args[1];
-
-    let input = File::open(file_path).context("could not find input file")?;
     let mut loads = BTreeMap::<u32, u8>::new();
-    io::BufReader::new(input)
+    io::BufReader::new(open_input_file()?)
         .lines()
         .try_fold(0u32, |acc, line| {
             match line {
@@ -27,7 +18,10 @@ fn main() -> Result<()> {
                 _ => {}
             }
 
-            loads.entry(acc).and_modify(|count| *count += 1).or_insert(1);
+            loads
+                .entry(acc)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
             Ok(0)
         })?;
 

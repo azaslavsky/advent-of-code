@@ -1,5 +1,5 @@
 [package]
-name = "day-1"
+name = "common"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.68"
-common = { path = "../common" }
