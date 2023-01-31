@@ -1,45 +1,59 @@
-use anyhow::{bail, Result};
-use common::open_input_file_with_variant;
+use anyhow::{Error, Result};
+use common::{open_input_file_with_variant, Variant};
 use std::io::{self, BufRead};
 
 // Assumes two ranges, each with two digits.
 fn superset(mut ranges: Vec<Vec<u32>>) -> bool {
-    ranges.sort();
     ranges[0].sort();
     ranges[1].sort();
+    ranges.sort();
     let lower = &ranges[0];
     let upper = &ranges[1];
-    if lower[0] == upper[0] || upper[1] <= lower[1] {
+    if upper[0] == lower[0] || upper[1] <= lower[1] {
+        return true;
+    }
+    return false;
+}
+
+// Assumes two ranges, each with two digits.
+fn intersect(mut ranges: Vec<Vec<u32>>) -> bool {
+    ranges[0].sort();
+    ranges[1].sort();
+    ranges.sort();
+    let lower = &ranges[0];
+    let upper = &ranges[1];
+    if lower[1] >= upper[0] {
         return true;
     }
     return false;
 }
 
 fn main() -> Result<()> {
-    let (input, _variant) = open_input_file_with_variant()?;
+    let (input, variant) = open_input_file_with_variant()?;
     let sum = io::BufReader::new(input)
         .lines()
-        .try_fold(0u32, |acc, line| match line {
-            Ok(line) => {
-                if !line.is_empty() {
-                    let ranges = line
-                        .split(',')
-                        .map(|range| {
-                            range
-                                .split('-')
-                                .map(|num| num.parse::<u32>().unwrap())
-                                .take(2)
-                                .collect::<Vec<_>>()
-                        })
-                        .take(2)
-                        .collect::<Vec<_>>();
-                    if superset(ranges) {
-                        return Ok(acc + 1);
-                    }
-                }
-                Ok(acc)
+        .try_fold(0u32, |acc, line| {
+            let line = line?;
+            if line.is_empty() {
+                return Ok::<u32, Error>(acc)
             }
-            Err(err) => bail!(err),
+
+            let ranges = line
+                .split(',')
+                .map(|range| {
+                    range
+                        .split('-')
+                        .map(|num| num.parse::<u32>().unwrap())
+                        .take(2)
+                        .collect::<Vec<_>>()
+                })
+                .take(2)
+                .collect::<Vec<_>>();
+            Ok(acc
+                + match variant {
+                    Variant::A => superset(ranges),
+                    Variant::B => intersect(ranges),
+                } as u32)
         })?;
 
     println!("The number of fully-contained pairs is: {}", sum);
