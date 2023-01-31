@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::fs::File;
+use std::io::{self, BufRead};
 
 // Use the first argument passed to this binary as the file path to a file containing input data.
 pub fn open_input_file() -> Result<File> {
@@ -30,4 +31,13 @@ pub fn open_input_file_with_variant() -> Result<(File, Variant)> {
         _ => bail!("incorrect variant")
     };
     Ok((File::open(file_path).context("could not find input file")?, variant))
+}
+
+pub fn get_input_file_lines_with_variant() -> Result<(Vec<String>, Variant)> {
+    let (input, variant) = open_input_file_with_variant()?;
+    let x: Result<Vec<_>, _> = io::BufReader::new(input).lines().collect();
+    match x {
+        Ok(foo) => Ok((foo, variant)),
+        Err(err) => Err(err.into())
+    }
 }
