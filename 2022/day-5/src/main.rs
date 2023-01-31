@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use common::{get_input_file_lines_with_variant};
+use common::{get_input_file_lines_with_variant, Variant};
 use std::collections::VecDeque;
 
 type Column = VecDeque<char>;
@@ -19,7 +19,7 @@ fn parse_crate_line(cols: &mut Columns, line: &str) -> Result<()> {
             '[' | ']' | ' ' => continue,
             _ => {
                 // Each column in the input is 4 characters wide.
-                let col = i/4;
+                let col = i / 4;
                 if !ch.is_alphabetic() {
                     bail!("parsing: invalid crate identifier")
                 }
@@ -71,7 +71,7 @@ fn init_moves(lines: Vec<String>) -> Result<Moves> {
     Ok(moves)
 }
 
-fn apply_moves(mut cols: Columns, moves: Moves) -> Result<Columns> {
+fn apply_moves(variant: &Variant, mut cols: Columns, moves: Moves) -> Result<Columns> {
     let num_cols = cols.len();
     for mv in moves {
         if mv.src >= num_cols {
@@ -80,11 +80,19 @@ fn apply_moves(mut cols: Columns, moves: Moves) -> Result<Columns> {
         if mv.dest >= num_cols {
             bail!("Tried to move to an unknown stack");
         }
-        
-        for _ in 0..mv.num {
-            match cols[mv.src].pop_front() {
-                Some(ch) => cols[mv.dest].push_front(ch),
-                None => bail!("Tried to move from an empty stack"),
+
+        match variant {
+            Variant::A => {
+                for _ in 0..mv.num {
+                    match cols[mv.src].pop_front() {
+                        Some(ch) => cols[mv.dest].push_front(ch),
+                        None => bail!("Tried to move from an empty stack"),
+                    }
+                }
+            }
+            Variant::B => {
+                let removed = cols[mv.src].drain(0..mv.num).rev().collect::<Vec<_>>();
+                removed.into_iter().for_each(|ch| cols[mv.dest].push_front(ch));
             }
         }
     }
@@ -103,7 +111,7 @@ fn print_top_crates(cols: &Columns) -> Result<String> {
 }
 
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
+    let (lines, variant) = get_input_file_lines_with_variant()?;
     let mut partition = true;
     let (cols, moves) = lines.into_iter().partition(|line| {
         if line.is_empty() {
@@ -112,7 +120,10 @@ fn main() -> Result<()> {
         partition
     });
 
-    let restacked = apply_moves(init_columns(cols)?, init_moves(moves)?)?;
-    println!("The top crates on each column are: {}", print_top_crates(&restacked)?);
+    let restacked = apply_moves(&variant, init_columns(cols)?, init_moves(moves)?)?;
+    println!(
+        "The top crates on each column are: {}",
+        print_top_crates(&restacked)?
+    );
     Ok(())
 }
