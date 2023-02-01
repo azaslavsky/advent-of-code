@@ -35,9 +35,9 @@ pub fn open_input_file_with_variant() -> Result<(File, Variant)> {
 
 pub fn get_input_file_lines_with_variant() -> Result<(Vec<String>, Variant)> {
     let (input, variant) = open_input_file_with_variant()?;
-    let x: Result<Vec<_>, _> = io::BufReader::new(input).lines().collect();
-    match x {
-        Ok(foo) => Ok((foo, variant)),
+    let lines: Result<Vec<_>, _> = io::BufReader::new(input).lines().collect();
+    match lines {
+        Ok(lines) => Ok((lines, variant)),
         Err(err) => Err(err.into())
     }
 }
