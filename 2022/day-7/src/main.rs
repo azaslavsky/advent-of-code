@@ -1,8 +1,10 @@
 use anyhow::{bail, Context, Result};
-use common::get_input_file_lines_with_variant;
-use std::collections::HashMap;
+use common::{get_input_file_lines_with_variant, Variant};
+use std::collections::{BTreeSet, HashMap};
 
 const LIMIT: usize = 100_000;
+const DISK_SIZE: usize = 70_000_000;
+const UPDATE_SIZE: usize = 30_000_000;
 
 trait Sizeable {
     fn get_size(&mut self) -> Result<usize>;
@@ -140,7 +142,7 @@ fn parse(lines: &[String], dir: &mut Dir) -> Result<LinesParsed> {
 }
 
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
+    let (lines, variant) = get_input_file_lines_with_variant()?;
     if lines.is_empty() || lines[0] != "$ cd /" {
         bail!("first command must be `$ cd /`")
     }
@@ -148,15 +150,33 @@ fn main() -> Result<()> {
     let mut root = Dir::new();
     parse(&lines[1..], &mut root)?;
 
-    let mut sum = 0;
-    root.visit_dirs(&mut |dir: &mut Dir| {
-        let size = dir.get_size()?;
-        if size < LIMIT {
-            sum += size;
+    match variant {
+        Variant::A => {
+            let mut sum = 0;
+            root.visit_dirs(&mut |dir: &mut Dir| {
+                let size = dir.get_size()?;
+                if size < LIMIT {
+                    sum += size;
+                }
+                Ok(())
+            })?;
+            println!("The sum of all sufficiently small directories is: {}", sum);
         }
-        Ok(())
-    })?;
+        Variant::B => {
+            let free_disk_space = DISK_SIZE.checked_sub(root.get_size()?).context("a")?;
+            let deletion_target = UPDATE_SIZE.checked_sub(free_disk_space).context("b")?;
+            println!("The deletion target is: {}", deletion_target);
 
-    println!("The sum of all sufficiently small directories is: {}", sum);
+            let mut dir_sizes = BTreeSet::<usize>::new();
+            root.visit_dirs(&mut |dir: &mut Dir| {
+                dir_sizes.insert(dir.get_size()?);
+                Ok(())
+            })?;
+            println!(
+                "The size of the smallest directory to delete to make space for the update is: {}",
+                dir_sizes.range(deletion_target..).next().context("no directory is small enough")?
+            );
+        }
+    }
     Ok(())
 }
