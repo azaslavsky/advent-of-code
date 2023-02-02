@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use common::get_input_file_lines_with_variant;
+use common::{get_input_file_lines_with_variant, Variant};
 use std::collections::HashSet;
 
 enum Direction {
@@ -14,16 +14,23 @@ struct Movement {
     magnitude: i16,
 }
 
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 struct Position {
     x: i16,
     y: i16,
 }
 
-#[derive(Default)]
-struct State {
-    head: Position,
-    tail: Position,
+#[derive(Debug)]
+struct State<const LENGTH: usize> {
+    knots: [Position; LENGTH],
+}
+
+impl<const LENGTH: usize> State<LENGTH> {
+    fn new() -> State<LENGTH> {
+        State {
+            knots: [Position::default(); LENGTH],
+        }
+    }
 }
 
 fn move_head<'a>(head: &'a mut Position, movement: &Movement) -> &'a mut Position {
@@ -36,31 +43,36 @@ fn move_head<'a>(head: &'a mut Position, movement: &Movement) -> &'a mut Positio
     head
 }
 
-fn move_tail(head: &mut Position, tail: &mut Position, visited: &mut HashSet<Position>) {
+fn move_knot(ends: &mut [Position], visited: &mut Option<&mut HashSet<Position>>) -> bool {
+    let mut moved = false;
     loop {
-        let x_diff = head.x - tail.x;
-        let y_diff = head.y - tail.y;
+        let x_diff = ends[0].x - ends[1].x;
+        let y_diff = ends[0].y - ends[1].y;
         if x_diff.abs() <= 1 && y_diff.abs() <= 1 {
             // The tail has moved to its final position.
-            return;
+            return moved;
         }
+
+        moved = true;
         if x_diff != 0 {
             // The tail needs to move horizontally.
             if x_diff > 0 {
-                tail.x += 1;
+                ends[1].x += 1;
             } else {
-                tail.x -= 1;
+                ends[1].x -= 1;
             }
         }
         if y_diff != 0 {
             // The tail needs to move vertically.
             if y_diff > 0 {
-                tail.y += 1;
+                ends[1].y += 1;
             } else {
-                tail.y -= 1;
+                ends[1].y -= 1;
             }
         }
-        visited.insert(tail.clone());
+        if let Some(ref mut v) = visited {
+            v.insert(ends[1].clone());
+        }
     }
 }
 
@@ -85,27 +97,58 @@ fn parse_line(line: &str) -> Result<Movement> {
     return Ok(out);
 }
 
+const ROPE_LENGTH_B: usize = 10;
+
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
+    let (lines, variant) = get_input_file_lines_with_variant()?;
+    let mut parsed_lines = lines.into_iter().map(|line| parse_line(line.as_str()));
 
-    let mut state = State::default();
     let mut visited = HashSet::<Position>::new();
-    visited.insert(state.tail.clone());
-    lines
-        .into_iter()
-        .map(|line| parse_line(line.as_str()))
-        .try_for_each(|input| {
-            match input {
-                Err(err) => bail!(err),
-                Ok(movement) => move_tail(
-                    move_head(&mut state.head, &movement),
-                    &mut state.tail,
-                    &mut visited,
-                ),
-            }
-            Ok(())
-        })?;
+    match variant {
+        Variant::A => {
+            let mut state = State::<2>::new();
+            visited.insert(state.knots[0].clone());
+            parsed_lines.try_for_each(|input| {
+                match input {
+                    Err(err) => bail!(err),
+                    Ok(movement) => {
+                        move_head(&mut state.knots[0], &movement);
+                        move_knot(&mut state.knots[..], &mut Some(&mut visited));
+                    }
+                }
+                Ok(())
+            })?;
+        }
+        Variant::B => {
+            let mut state = State::<ROPE_LENGTH_B>::new();
+            visited.insert(state.knots[0].clone());
+            parsed_lines.try_for_each(|input| {
+                match input {
+                    Err(err) => bail!(err),
+                    Ok(movement) => {
+                        // Move the head.
+                        move_head(&mut state.knots[0], &movement);
 
-    println!("Unique cells visited: {}", visited.len());
+                        // Move intermediate knots.
+                        for i in 0..(ROPE_LENGTH_B - 2) {
+                            if !move_knot(&mut state.knots[i..], &mut None) {
+                                break;
+                            }
+                        }
+
+                        // Move tail knot.
+                        move_knot(
+                            &mut state.knots[(ROPE_LENGTH_B - 2)..ROPE_LENGTH_B],
+                            &mut Some(&mut visited),
+                        );
+                        // println!("State: {:#?} \n\n", state);
+                    }
+                }
+                Ok(())
+            })?;
+        }
+    }
+
+    println!("Unique cells visited by tail: {}", visited.len());
     Ok(())
 }
