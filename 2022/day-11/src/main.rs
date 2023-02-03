@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Error, Result};
-use common::get_input_file_lines_with_variant;
+use common::{get_input_file_lines_with_variant, Variant};
 use std::{
     cell::{RefCell, RefMut},
     collections::VecDeque,
@@ -7,15 +7,77 @@ use std::{
 };
 
 // What we divide an `Item`'s `worry` score by whenever a monkey gets bored with it.
-const BOREDOM_DIVISOR: usize = 3;
+const BOREDOM_DIVISOR_A: usize = 3;
+const BOREDOM_DIVISOR_B: usize = 1;
 
-struct Item {
-    worry: usize,
+trait Worry
+where
+    Self: Sized,
+{
+    fn parse(from: &str) -> Result<Self>;
+    fn from_usize(from: usize) -> Self;
+    fn try_divide_by(self, divisor: usize) -> Result<Self>;
+    fn plus(&mut self, rhs: &Self);
+    fn times(&mut self, rhs: &Self);
 }
 
-impl Debug for Item {
+impl Worry for usize {
+    fn parse(from: &str) -> Result<usize> {
+        Ok(from.parse()?)
+    }
+
+    fn from_usize(from: usize) -> usize {
+        from
+    }
+
+    fn try_divide_by(self, divisor: usize) -> Result<usize> {
+        Ok(self)
+    }
+
+    fn plus(&mut self, rhs: &Self) {
+        *self += rhs;
+    }
+
+    fn times(&mut self, rhs: &Self) {
+        *self *= rhs;
+    }
+}
+
+impl Worry for Vec<usize> {
+    fn parse(from: &str) -> Result<Vec<usize>> {
+        let mut out = Vec::<usize>::new();
+        for ch in from.chars() {
+            out.push(ch.to_digit(10).context("parsing: invalid character")? as usize);
+        }
+        Ok(out.into_iter().rev().collect())
+    }
+
+    fn from_usize(from: usize) -> Vec<usize> {
+        vec![from]
+    }
+
+    fn try_divide_by(self, divisor: usize) -> Result<Vec<usize>> {
+        if divisor == 1 {
+            return Ok(self);
+        }
+        bail!("there should be no need for division in variant b");
+    }
+
+    fn plus(&mut self, rhs: &Self) {}
+
+    fn times(&mut self, rhs: &Self) {}
+}
+
+struct Item<W> {
+    worry: W,
+}
+
+impl<W> Debug for Item<W>
+where
+    W: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.worry)
+        write!(f, "{:?}", self.worry)
     }
 }
 
@@ -43,9 +105,12 @@ struct Op {
 }
 
 #[derive(Debug)]
-struct Monkey {
+struct Monkey<W>
+where
+    W: Debug,
+{
     /// The `Item`s currently held by this `Monkey`.
-    items: VecDeque<Item>,
+    items: VecDeque<Item<W>>,
 
     /// The pre-test operation to perform on the `Item`'s `worry` score.
     op: Op,
@@ -66,8 +131,11 @@ struct Monkey {
     inspections: usize,
 }
 
-impl Monkey {
-    fn new() -> Monkey {
+impl<W> Monkey<W>
+where
+    W: Debug,
+{
+    fn new() -> Monkey<W> {
         Monkey {
             items: VecDeque::new(),
             op: Op {
@@ -83,13 +151,16 @@ impl Monkey {
     }
 }
 
-fn parse_items(text: Option<&str>) -> Result<VecDeque<Item>> {
-    let mut items = VecDeque::<Item>::new();
+fn parse_items<W>(text: Option<&str>) -> Result<VecDeque<Item<W>>>
+where
+    W: Debug + Worry,
+{
+    let mut items = VecDeque::<Item<W>>::new();
     match text {
         None => bail!("parsing: missing item list"),
         Some(text) => text.split(',').try_for_each(|s| {
             Ok::<(), Error>(items.push_back(Item {
-                worry: s.trim().parse::<usize>()?,
+                worry: W::parse(text)?,
             }))
         }),
     }?;
@@ -157,10 +228,13 @@ fn parse_throw(text: Option<&str>) -> Result<Throw> {
     }
 }
 
-fn parse(lines: Vec<String>) -> Result<Vec<RefCell<Monkey>>> {
+fn parse<W>(lines: Vec<String>) -> Result<Vec<RefCell<Monkey<W>>>>
+where
+    W: Debug + Worry,
+{
     let state = lines
         .iter()
-        .try_fold(Vec::<Monkey>::new(), |mut state, line| {
+        .try_fold(Vec::<Monkey<W>>::new(), |mut state, line| {
             if line.is_empty() {
                 return Ok(state);
             }
@@ -212,21 +286,32 @@ fn parse(lines: Vec<String>) -> Result<Vec<RefCell<Monkey>>> {
         .collect::<Vec<_>>())
 }
 
-fn throw_items(monkey: &mut RefMut<Monkey>, state: &mut Vec<RefCell<Monkey>>) -> Result<()> {
+fn throw_items<W>(
+    variant: &Variant,
+    monkey: &mut RefMut<Monkey<W>>,
+    state: &mut Vec<RefCell<Monkey<W>>>,
+) -> Result<()>
+where
+    W: Debug + Worry,
+{
     monkey.inspections += monkey.items.iter().try_fold(0, |acc, item| {
         let op = &monkey.op;
         let a = match op.operands[0] {
             Operand::Old => item.worry,
-            Operand::Num(num) => num,
+            Operand::Num(num) => W::from_usize(num),
         };
         let b = match op.operands[1] {
             Operand::Old => item.worry,
-            Operand::Num(num) => num,
+            Operand::Num(num) => W::from_usize(num),
         };
-        let new_worry = match op.operator {
-            Operator::Add => a + b,
-            Operator::Multiply => a * b,
-        } / BOREDOM_DIVISOR;
+        let mut new_worry = match op.operator {
+            Operator::Add => a.plus(&b),
+            Operator::Multiply => a.times(&b),
+        };
+        new_worry = new_worry.try_divide_by(match variant {
+            Variant::A => BOREDOM_DIVISOR_A,
+            Variant::B => BOREDOM_DIVISOR_B,
+        })?;
         let throw_to = match new_worry % monkey.test_using == 0 {
             true => monkey.if_true.to,
             false => monkey.if_false.to,
@@ -245,12 +330,15 @@ fn throw_items(monkey: &mut RefMut<Monkey>, state: &mut Vec<RefCell<Monkey>>) ->
     Ok(())
 }
 
-fn play_round(state: &mut Vec<RefCell<Monkey>>) -> Result<()> {
+fn play_round<W>(variant: &Variant, state: &mut Vec<RefCell<Monkey<W>>>) -> Result<()>
+where
+    W: Debug + Worry,
+{
     // :(
     unsafe {
-        let s = &mut *(state as *mut Vec<RefCell<Monkey>>);
+        let s = &mut *(state as *mut Vec<RefCell<Monkey<W>>>);
         state.iter_mut().try_for_each(|monkey| {
-            throw_items(&mut monkey.try_borrow_mut()?, s)?;
+            throw_items(variant, &mut monkey.try_borrow_mut()?, s)?;
             Ok::<(), Error>(())
         })?;
     }
@@ -258,11 +346,17 @@ fn play_round(state: &mut Vec<RefCell<Monkey>>) -> Result<()> {
 }
 
 #[allow(dead_code)]
-fn print_state(state: &mut Vec<RefCell<Monkey>>) {
+fn print_state<W>(state: &mut Vec<RefCell<Monkey<W>>>)
+where
+    W: Debug,
+{
     println!("Parsed state: {:#?}", state);
 }
 
-fn print_round(state: &mut Vec<RefCell<Monkey>>, num: usize) -> Result<()> {
+fn print_round<W>(state: &mut Vec<RefCell<Monkey<W>>>, num: usize) -> Result<()>
+where
+    W: Debug,
+{
     println!(
         "\n After round {}, the monkeys are holding items with these worry levels:",
         num
@@ -275,25 +369,31 @@ fn print_round(state: &mut Vec<RefCell<Monkey>>, num: usize) -> Result<()> {
 }
 
 /// The number of rounds we track the monkeys for before doing calculations.
-const ROUNDS: usize = 20;
+const ROUNDS_A: usize = 20;
+const ROUNDS_B: usize = 1000;
 
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
-    let mut state = parse(lines)?;
-    // print_state(&mut state);
+    let (lines, variant) = get_input_file_lines_with_variant()?;
 
-    for round in 0..ROUNDS {
-        play_round(&mut state)?;
-        print_round(&mut state, round + 1)?;
-    }
+    let mut inspections = match &variant {
+        Variant::A => {
+            let mut state = parse::<usize>(lines)?;
+            // print_state(&mut state);
+            for round in 0..ROUNDS_A {
+                play_round(&variant, &mut state)?;
+                print_round(&mut state, round + 1)?;
+            }
+            state
+                .iter()
+                .enumerate()
+                .map(|(_, monkey)| monkey.borrow().inspections)
+                .collect::<Vec<_>>()
+        }
+        // Variant::B => {}
+        _ => todo!(),
+    };
 
-    let mut inspections = state
-        .iter()
-        .enumerate()
-        .map(|(_, monkey)| monkey.borrow().inspections)
-        .collect::<Vec<_>>();
     inspections.sort();
-    
     println!(
         "\nThe level of monkey business is: {}",
         inspections
