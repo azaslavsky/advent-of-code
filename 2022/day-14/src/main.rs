@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Error, Result};
-use common::get_input_file_lines_with_variant;
+use common::{get_input_file_lines_with_variant, Variant};
 
 #[derive(Debug)]
 struct Point {
@@ -91,19 +91,21 @@ fn parse(lines: Vec<String>) -> Result<(Vec<Multiline>, BoundingBox)> {
     Ok((multilines, bounds))
 }
 
-/// Create the starting state for the grid by filling in each point touched by a line.
-fn init_grid(multilines: Vec<Multiline>, bounds: BoundingBox) -> Result<Grid> {
-    let height = (bounds.bottom_right.row + 1) - bounds.top_left.row;
-    let width = (bounds.bottom_right.col + 1) - bounds.top_left.col;
+/// Create the starting state for the grid by filling in each point touched by a line. The |floor|
+/// argument controls how much the floor is offset by at the bottom of the grid.
+fn init_grid(multilines: Vec<Multiline>, bounds: BoundingBox, floor: Option<usize>) -> Result<Grid> {
+    let height = ((bounds.bottom_right.row + 1) - bounds.top_left.row) + floor.unwrap_or(0);
+    let width = height * 2;
     let row_offset = bounds.top_left.row;
-    let col_offset = bounds.top_left.col;
+    let col_offset = DEFAULT_SAND_SOURCE.col - (width/2);
+    let cell_count = height * width;
     let mut grid = Grid {
         source: Point {
             row: DEFAULT_SAND_SOURCE.row - bounds.top_left.row,
-            col: DEFAULT_SAND_SOURCE.col - bounds.top_left.col,
+            col: width/2,
         },
         width,
-        cells: vec![CellState::default(); height * width],
+        cells: vec![CellState::default(); cell_count],
     };
 
     multilines.into_iter().try_for_each(|multiline| {
@@ -147,6 +149,13 @@ fn init_grid(multilines: Vec<Multiline>, bounds: BoundingBox) -> Result<Grid> {
         })?;
         Ok(())
     })?;
+
+    // Before exiting, add the floor, if requested.
+    if let Some(_) = floor {
+        for i in 0..width {
+            grid.cells[cell_count - 1 - i] = CellState::Rock;
+        }
+    }
     Ok(grid)
 }
 
@@ -196,6 +205,12 @@ fn simulate_until_full(grid: &mut Grid) -> Result<usize> {
         // If we're stuck, place the grain, then loop again.
         cells[pos] = CellState::Sand;
         count += 1;
+        if pos == source {
+            // The source of the sand is plugged, the simulation is done.
+            return Ok(count);
+        }
+
+        // Make sure to reset the starting position for each new grain.
         pos = source;
     }
 }
@@ -232,12 +247,15 @@ fn render(grid: &Grid) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
+    let (lines, variant) = get_input_file_lines_with_variant()?;
     let (multilines, bounds) = parse(lines)?;
     // println!("\n{:#?}", multilines);
     // println!("\n{:#?}", bounds);
 
-    let mut grid = init_grid(multilines, bounds)?;
+    let mut grid = init_grid(multilines, bounds, match variant {
+        Variant::A => None,
+        Variant::B => Some(2),
+    })?;
     // println!("\n{:#?}", grid);
     println!("\nThe initial grid:\n");
     render(&grid)?;
