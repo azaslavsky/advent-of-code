@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Error, Result};
-use common::get_input_file_lines_with_variant;
+use common::{get_input_file_lines_with_variant, Variant};
 use std::collections::{HashSet, VecDeque};
 
 type Grid = Vec<Vec<i8>>;
@@ -20,11 +20,13 @@ struct Description {
     grid: Grid,
     from: Position,
     goal: Position,
+    mins: HashSet<Position>,
 }
 
 fn parse(lines: Vec<String>) -> Result<Description> {
     let mut from = None;
     let mut goal = None;
+    let mut mins = HashSet::new();
     let grid = lines
         .into_iter()
         .enumerate()
@@ -37,6 +39,7 @@ fn parse(lines: Vec<String>) -> Result<Description> {
                             Some(_) => bail!("parsing: multiple S cells"),
                             None => {
                                 from = Some(Position { row, col });
+                                mins.insert(Position { row, col });
                                 Ok::<_, Error>(0) // aka "a"
                             }
                         },
@@ -53,6 +56,9 @@ fn parse(lines: Vec<String>) -> Result<Description> {
                             if ascii < 97 || ascii > 122 {
                                 bail!("parsing: unknown character (not lowercase letter, S, or E)")
                             }
+                            if ascii == 97 {
+                                mins.insert(Position { row, col });
+                            }
                             Ok(ascii - 97)
                         }
                     }?);
@@ -66,10 +72,16 @@ fn parse(lines: Vec<String>) -> Result<Description> {
         from: from.context("parsing: no S cell seen")?,
         goal: goal.context("parsing: no E cell seen")?,
         grid,
+        mins,
     })
 }
 
-fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
+fn search(
+    from: &Position,
+    goal: impl Fn(&Position) -> bool,
+    grid: &Grid,
+    cmp: impl Fn(i8, i8) -> bool,
+) -> Result<usize> {
     let mut queue = VecDeque::<History>::new();
     let mut visited = HashSet::<Position>::new();
     queue.push_front(History {
@@ -90,8 +102,8 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
 
                 // Exit as soon as we reach the goal.
                 let current = grid[pos.row][pos.col];
-                if goal == &pos {
-                    return Ok(hist.steps)
+                if goal(&pos) {
+                    return Ok(hist.steps);
                 }
 
                 // Mark this cell as visited, so we don't do redundant work.
@@ -99,7 +111,7 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
 
                 // Try each of the cardinal directions, and add that direction to the queue if
                 // possible. First, try going up.
-                if pos.row > 0 && grid[pos.row - 1][pos.col] - current <= 1 {
+                if pos.row > 0 && cmp(grid[pos.row - 1][pos.col], current) {
                     queue.push_front(History {
                         pos: Position {
                             row: pos.row - 1,
@@ -110,7 +122,7 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
                 }
 
                 // Next, down.
-                if pos.row < grid.len() - 1 && grid[pos.row + 1][pos.col] - current <= 1 {
+                if pos.row < grid.len() - 1 && cmp(grid[pos.row + 1][pos.col], current) {
                     queue.push_front(History {
                         pos: Position {
                             row: pos.row + 1,
@@ -121,7 +133,7 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
                 }
 
                 // Then left.
-                if pos.col > 0 && grid[pos.row][pos.col - 1] - current <= 1 {
+                if pos.col > 0 && cmp(grid[pos.row][pos.col - 1], current) {
                     queue.push_front(History {
                         pos: Position {
                             row: pos.row,
@@ -132,7 +144,7 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
                 }
 
                 // Finally, right.
-                if pos.col < grid[0].len() - 1 && grid[pos.row][pos.col + 1] - current <= 1 {
+                if pos.col < grid[0].len() - 1 && cmp(grid[pos.row][pos.col + 1], current) {
                     queue.push_front(History {
                         pos: Position {
                             row: pos.row,
@@ -147,12 +159,23 @@ fn search(from: &Position, goal: &Position, grid: &Grid) -> Result<usize> {
 }
 
 fn main() -> Result<()> {
-    let (lines, _variant) = get_input_file_lines_with_variant()?;
+    let (lines, variant) = get_input_file_lines_with_variant()?;
     let desc = parse(lines)?;
 
-    println!(
-        "Minimum number of steps is: {}",
-        search(&desc.from, &desc.goal, &desc.grid)?
-    );
+    let shortest_path = match variant {
+        Variant::A => search(
+            &desc.from,
+            |pos| pos == &desc.goal,
+            &desc.grid,
+            |candidate, current| candidate - current <= 1,
+        )?,
+        Variant::B => {search(
+            &desc.goal,
+            |pos| desc.mins.contains(pos),
+            &desc.grid,
+            |candidate, current| current - candidate <= 1,
+        )?},
+    };
+    println!("Minimum number of steps is: {}", shortest_path);
     Ok(())
 }
